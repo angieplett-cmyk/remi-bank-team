@@ -27,6 +27,14 @@ const hrName=id=>(S.homerooms.find(h=>h.id===id)||{}).teacher_name||"—";
 const hrColor=id=>(S.homerooms.find(h=>h.id===id)||{}).color||"#999";
 const nm=s=>s?`${s.first_name} ${s.last_initial}.`:"?";
 const myHr=()=>S.homerooms.find(h=>h.owner_teacher_id===S.user?.id);
+const SHARED_LABEL="Room D211 Friday Store";
+const sharedHr=()=>S.homerooms.find(h=>h.is_shared_store);
+const runsStore=h=>h&&(h.is_shared_store||h.store_mode==="own");
+const storeHrOf=s=>{const h=S.homerooms.find(x=>x.id===s.homeroom_id);if(!h)return null;return runsStore(h)?h.id:(sharedHr()||{}).id};
+const storeLabel=id=>{const h=S.homerooms.find(x=>x.id===id);if(!h)return "Store";return h.is_shared_store?SHARED_LABEL:`${h.teacher_name}'s own store`};
+const canRun=id=>{const h=S.homerooms.find(x=>x.id===id);return !!h&&runsStore(h)&&(S.isAdmin||h.owner_teacher_id===S.user?.id)};
+const canEditMenu=id=>{const h=S.homerooms.find(x=>x.id===id);return S.isAdmin||(!!h&&h.owner_teacher_id===S.user?.id)};
+const modeText=h=>h.is_shared_store?`Runs the ${SHARED_LABEL}${h.store_day?` (${h.store_day})`:""}`:h.store_mode==="own"?`Runs own store${h.store_day?` (${h.store_day})`:""}`:`Shops at the ${SHARED_LABEL}`;
 
 async function loadAll(){
   const [h,s,b,i,t]=await Promise.all([
@@ -112,7 +120,8 @@ const activeIn=hr=>S.students.filter(s=>s.active&&(hr==="all"||s.homeroom_id===h
 /* ================= BANK ================= */
 function vBank(){const q=(S.q||"").toLowerCase();
   const list=activeIn(S.hr).filter(s=>!q||nm(s).toLowerCase().includes(q));
-  $("#main").innerHTML=`${hrTabs()}<div class="row" style="margin-bottom:12px"><input id="q" placeholder="🔎 Type 2–3 letters of a name" value="${esc(S.q||"")}" style="max-width:420px"><span class="sp"></span><span class="mut">${list.length} students</span></div>
+  const strip=`<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));margin-bottom:12px">${S.homerooms.map(h=>`<div class="card" style="padding:10px 14px;border-color:${h.color}"><b style="color:${h.color}">${esc(h.teacher_name)}</b> <span class="mut">· ${activeIn(h.id).length} students</span><br><small>🛍️ ${esc(modeText(h))}</small></div>`).join("")}</div>`;
+  $("#main").innerHTML=`${strip}${hrTabs()}<div class="row" style="margin-bottom:12px"><input id="q" placeholder="🔎 Type 2–3 letters of a name" value="${esc(S.q||"")}" style="max-width:420px"><span class="sp"></span><span class="mut">${list.length} students</span></div>
    <div class="grid">${list.map(s=>`<button class="tile" data-s="${s.id}"><span class="n">${esc(nm(s))}${s.is_banker?" 🏦":""}</span><span class="b">${money(S.bal[s.id])}</span>${S.hr==="all"?`<span class="hr">${esc(hrName(s.homeroom_id))}</span>`:""}</button>`).join("")||'<p class="mut">No students here yet.</p>'}</div>`;
   bindHr();const qi=$("#q");qi.oninput=()=>{S.q=qi.value;vBank();const n=$("#q");n.focus();n.setSelectionRange(n.value.length,n.value.length)};
   $$("[data-s]").forEach(b=>b.onclick=()=>studentSheet(b.dataset.s));
@@ -172,31 +181,41 @@ function vDeposit(){if(S.hr==="all")S.hr=S.homerooms[0].id;S.dep=S.dep||{amt:5,r
 function jar(goalId,hrId){return -S.tx.filter(t=>t.kind==="goal"&&!t.undone_by&&t.item_id===goalId&&t.homeroom_id_at_time===hrId).reduce((n,t)=>n+t.amount,0)}
 function itemCard(it,editing){const lim=it.per_quarter_limit?`<span class="badge">${it.per_quarter_limit===1?"Once":it.per_quarter_limit+"×"} per quarter</span> `:"";
   return `<button class="item t-${it.tier}" data-it="${it.id}" style="${it.active?"":"opacity:.45"}"><span class="em">${esc(it.emoji||"🎁")}</span><span class="nm">${esc(it.name)}<br>${lim}${it.needs_approval?'<span class="badge amb">Teacher pre-approval</span>':""}${it.note?`<br><small class="mut">${esc(it.note)}</small>`:""}${!it.active?'<span class="badge gry">Hidden</span>':""}</span><span class="pr">${money(it.price)}</span>${editing?"✏️":""}</button>`}
-function vStore(){const ed=S.editStore;const items=S.items.filter(i=>ed||i.active);const hrForGoal=S.hr==="all"?S.homerooms[0].id:S.hr;
-  $("#main").innerHTML=`<div class="row"><h2 style="margin:0">🛍️ REMI Store</h2><span class="sp"></span>${ed?`<button class="grn sm" id="addIt">➕ Add item</button>`:""}<button class="sm ${ed?"pri":""}" id="edT">${ed?"Done editing":"✏️ Edit store"}</button></div>
-   <p class="mut">Earn REMI dollars by being Responsible, showing Empathy, practicing Mindfulness, and acting with Integrity. ${ed?"<b>Tap an item to edit it.</b>":"Tap an item to buy it for a student."}</p>
-   ${TIERS.map(([k,l,sub])=>{const its=items.filter(i=>i.tier===k);if(!its.length)return "";
-     if(k==="goal"&&!ed)return `<div class="tier"><h3>${l}</h3><span class="mut">${sub}</span></div>${hrTabs(false)}<div class="items">${its.map(g=>{const j=jar(g.id,hrForGoal),pc=Math.min(100,Math.round(j/g.price*100));
-       return `<button class="item t-goal" data-goal="${g.id}" style="flex-direction:column;align-items:stretch"><div class="row"><span class="em">${esc(g.emoji)}</span><span class="nm">${esc(g.name)}</span><span class="pr">${money(g.price)}</span></div><div class="bar"><i style="width:${pc}%"></i></div><small>${esc(hrName(hrForGoal))}'s jar: <b>${money(j)}</b> of ${money(g.price)} ${pc>=100?"🎉 Goal reached!":"· tap to chip in"}</small></button>`}).join("")}</div>`;
-     return `<div class="tier"><h3>${l}</h3><span class="mut">${sub}</span></div><div class="items">${its.map(i=>itemCard(i,ed)).join("")}</div>`}).join("")}`;
-  bindHr();$("#edT").onclick=()=>{S.editStore=!S.editStore;vStore()};if($("#addIt"))$("#addIt").onclick=()=>itemEditor(null);
-  $$("[data-it]").forEach(b=>b.onclick=()=>ed?itemEditor(b.dataset.it):buyFlow(b.dataset.it));
+function vStore(){const stores=S.homerooms.filter(runsStore);
+  if(!S.storeHr||!stores.find(h=>h.id===S.storeHr)){const m=myHr();S.storeHr=m&&runsStore(m)?m.id:(m?storeHrOf({homeroom_id:m.id}):(sharedHr()||stores[0]||{}).id)}
+  const sh=S.storeHr,ed=S.editStore&&canEditMenu(sh),run=canRun(sh);
+  const items=S.items.filter(i=>i.tier!=="goal"&&i.homeroom_id===sh&&(ed||i.active));const goals=S.items.filter(i=>i.tier==="goal"&&(S.editStore&&S.isAdmin||i.active));
+  const served=S.homerooms.filter(h=>(runsStore(h)?h.id:(sharedHr()||{}).id)===sh).map(h=>h.teacher_name);
+  const hrForGoal=S.hr==="all"?S.homerooms[0].id:S.hr;
+  $("#main").innerHTML=`<div class="tabs">${stores.map(h=>`<button data-st="${h.id}" style="${sh===h.id?`background:${h.color};color:#fff`:""}">🛍️ ${esc(storeLabel(h.id))}</button>`).join("")}</div>
+   <div class="row"><h2 style="margin:0">${esc(storeLabel(sh))}</h2><span class="sp"></span>${ed?`<button class="grn sm" id="addIt">➕ Add item</button>`:""}${canEditMenu(sh)?`<button class="sm ${ed?"pri":""}" id="edT">${ed?"Done editing":"✏️ Edit menu"}</button>`:""}</div>
+   <p class="mut">Serves: <b>${esc(served.join(", "))}</b>${S.homerooms.find(h=>h.id===sh)?.store_day?` · Store day: <b>${esc(S.homerooms.find(h=>h.id===sh).store_day)}</b>`:""}. ${ed?"<b>Tap an item to edit it.</b>":run?"Tap an item to ring it up for a student.":"View only — only this store's teacher and bankers can ring up purchases."}</p>
+   ${!items.length?`<div class="card"><p>No items on this menu yet.</p>${canEditMenu(sh)&&!S.homerooms.find(h=>h.id===sh)?.is_shared_store?`<button class="pri" id="copyMenu">Copy the ${SHARED_LABEL} menu to start</button>`:""}</div>`:""}
+   ${TIERS.filter(t=>t[0]!=="goal").map(([k,l,sub])=>{const its=items.filter(i=>i.tier===k);if(!its.length)return "";
+     return `<div class="tier"><h3>${l}</h3><span class="mut">${sub}</span></div><div class="items">${its.map(i=>itemCard(i,ed)).join("")}</div>`}).join("")}
+   ${goals.length?`<div class="tier"><h3>CLASS GOALS</h3><span class="mut">The whole class saves together!</span>${S.isAdmin&&S.editStore?"":""}</div>${hrTabs(false)}<div class="items">${goals.map(g=>{const j=jar(g.id,hrForGoal),pc=Math.min(100,Math.round(j/g.price*100));
+       return S.editStore&&S.isAdmin?itemCard(g,true).replace('data-it=','data-git='):`<button class="item t-goal" data-goal="${g.id}" style="flex-direction:column;align-items:stretch"><div class="row"><span class="em">${esc(g.emoji)}</span><span class="nm">${esc(g.name)}</span><span class="pr">${money(g.price)}</span></div><div class="bar"><i style="width:${pc}%"></i></div><small>${esc(hrName(hrForGoal))}'s jar: <b>${money(j)}</b> of ${money(g.price)} ${pc>=100?"🎉 Goal reached!":"· tap to chip in"}</small></button>`}).join("")}</div>`:""}`;
+  bindHr();$$("[data-st]").forEach(b=>b.onclick=()=>{S.storeHr=b.dataset.st;S.editStore=false;vStore()});
+  if($("#edT"))$("#edT").onclick=()=>{S.editStore=!S.editStore;vStore()};if($("#addIt"))$("#addIt").onclick=()=>itemEditor(null,sh);
+  if($("#copyMenu"))$("#copyMenu").onclick=async()=>{const {data,error}=await sb.rpc("copy_shared_menu",{p_homeroom_id:sh});if(error)return toast(errMsg(error));toast(`Copied ${data} items — edit prices any time`);scheduleReload()};
+  $$("[data-it]").forEach(b=>b.onclick=()=>ed?itemEditor(b.dataset.it,sh):run?buyFlow(b.dataset.it):toast(`Only ${storeLabel(sh)}'s teacher or bankers can ring this up.`));
+  $$("[data-git]").forEach(b=>b.onclick=()=>itemEditor(b.dataset.git,null));
   $$("[data-goal]").forEach(b=>b.onclick=()=>goalFlow(b.dataset.goal,hrForGoal));
 }
-function pickStudent(title,hrDefault,cb){let hr=hrDefault&&hrDefault!=="all"?hrDefault:"all",q="";
-  modal(`<h2>${title}</h2><div id="pk"></div>`,(m,close)=>{const draw=()=>{const list=activeIn(hr).filter(s=>!q||nm(s).toLowerCase().includes(q.toLowerCase()));
+function pickStudent(title,hrDefault,cb,filter){let hr=hrDefault&&hrDefault!=="all"?hrDefault:"all",q="";
+  modal(`<h2>${title}</h2><div id="pk"></div>`,(m,close)=>{const draw=()=>{const list=activeIn(hr).filter(s=>(!filter||filter(s))&&(!q||nm(s).toLowerCase().includes(q.toLowerCase())));
     $("#pk",m).innerHTML=`<div class="tabs">${S.homerooms.map(h=>`<button data-ph="${h.id}" style="${hr===h.id?`background:${h.color};color:#fff`:""}">${esc(h.teacher_name)}</button>`).join("")}<button data-ph="all" style="${hr==="all"?"background:var(--ink);color:#fff":""}">All</button></div>
      <input id="pq" placeholder="🔎 Search" value="${esc(q)}"><div class="grid" style="margin-top:10px">${list.map(s=>`<button class="tile" data-p="${s.id}"><span class="n">${esc(nm(s))}</span><span class="b">${money(S.bal[s.id])}</span></button>`).join("")}</div>`;
     $$("[data-ph]",m).forEach(b=>b.onclick=()=>{hr=b.dataset.ph;draw()});const pq=$("#pq",m);pq.oninput=()=>{q=pq.value;draw();const n=$("#pq",m);n.focus();n.setSelectionRange(n.value.length,n.value.length)};
     $$("[data-p]",m).forEach(b=>b.onclick=()=>{close();cb(b.dataset.p)})};draw()})}
 function buyFlow(itemId){const it=S.items.find(i=>i.id===itemId);if(!it)return;
-  pickStudent(`${esc(it.emoji)} ${esc(it.name)} · ${money(it.price)}<br><small class="mut">Buy for which student?</small>`,S.hr,sid=>{const s=stu(sid),b=S.bal[sid]||0;
+  const sh=it.homeroom_id;pickStudent(`${esc(it.emoji)} ${esc(it.name)} · ${money(it.price)}<br><small class="mut">Buy for which student? (${esc(storeLabel(sh))} customers)</small>`,"all",sid=>{const s=stu(sid),b=S.bal[sid]||0;
     modal(`<h2>Buy for ${esc(nm(s))}?</h2><p style="font-size:1.2rem">${esc(it.emoji)} ${esc(it.name)} · <b>${money(it.price)}</b></p>${it.needs_approval?`<p class="badge amb" style="display:block;padding:10px;border-radius:12px">⚠️ Needs teacher pre-approval. ${esc(it.note||"")}</p><label><input type="checkbox" id="ok" style="width:auto;min-height:0"> I approve this purchase</label>`:""}
       <p style="font-size:1.3rem"><b>${money(b)}</b> → <b class="${b-it.price<0?"neg":""}">${money(b-it.price)}</b></p>${b<it.price?`<p class="neg">Needs ${money(it.price-b)} more.</p>`:""}
       <div class="row"><button class="grn" id="y" ${b<it.price?"disabled":""}>Buy for ${money(it.price)}</button><button id="n">Cancel</button></div>`,(m,close)=>{$("#n",m).onclick=close;
       $("#y",m).onclick=async()=>{if(it.needs_approval&&!$("#ok",m).checked)return toast("Tick “I approve” first.");close();
         const {data,error}=await sb.rpc("buy_items",{p_student_id:sid,p_items:[{item_id:it.id,quantity:1}]});if(error)return toast(errMsg(error));
-        toast(`${nm(s)} bought ${it.name}`,()=>undo(data));scheduleReload()}})})}
+        toast(`${nm(s)} bought ${it.name}`,()=>undo(data));scheduleReload()}})},s=>storeHrOf(s)===sh)}
 function goalFlow(goalId,hrId){const g=S.items.find(i=>i.id===goalId);let off=new Set(),each=5;
   modal(`<h2>${esc(g.emoji)} Chip in: ${esc(g.name)}</h2><p class="mut">${esc(hrName(hrId))}'s jar: ${money(jar(goalId,hrId))} of ${money(g.price)}. Students who can't afford it are skipped.</p><div id="gw"></div>`,(m,close)=>{const draw=()=>{const list=activeIn(hrId);
     const on=list.filter(s=>!off.has(s.id)&&(S.bal[s.id]||0)>=each);
@@ -204,17 +223,17 @@ function goalFlow(goalId,hrId){const g=S.items.find(i=>i.id===goalId);let off=ne
      <button class="pur" id="gy" style="width:100%" ${on.length?"":"disabled"}>${on.length} students give ${money(each)} (= ${money(on.length*each)})</button>`;
     $("#ge",m).onchange=e=>{each=Math.max(1,parseInt(e.target.value,10)||1);draw()};$$("[data-g]",m).forEach(b=>b.onclick=()=>{const id=b.dataset.g;off.has(id)?off.delete(id):off.add(id);draw()});
     $("#gy",m).onclick=async()=>{close();const {data,error}=await sb.rpc("give_to_goal",{p_student_ids:on.map(s=>s.id),p_goal_id:goalId,p_each:each});if(error)return toast(errMsg(error));toast(`Added ${money(on.length*each)} to the ${g.name} jar`,()=>undo(data));scheduleReload()}};draw()})}
-function itemEditor(id){const it=id?S.items.find(i=>i.id===id):{tier:"small",name:"",emoji:"🎁",price:1,per_quarter_limit:null,active:true,needs_approval:false,note:""};
+function itemEditor(id,menuHr){const it=id?S.items.find(i=>i.id===id):{tier:menuHr?"small":"goal",name:"",emoji:"🎁",price:1,per_quarter_limit:null,active:true,needs_approval:false,note:""};
   modal(`<h2>${id?"Edit item":"New item"}</h2><form id="ie"><label>Name</label><input name="name" required maxlength="60" value="${esc(it.name)}">
    <div class="row"><div style="flex:1"><label>Emoji</label><input name="emoji" maxlength="4" value="${esc(it.emoji||"")}"></div><div style="flex:1"><label>Price ($)</label><input name="price" type="number" min="1" max="10000" required value="${it.price}"></div></div>
-   <label>Group</label><select name="tier">${TIERS.map(([k,l])=>`<option value="${k}" ${it.tier===k?"selected":""}>${l}</option>`).join("")}</select>
+   <label>Group</label><select name="tier">${TIERS.filter(([k])=>menuHr?k!=="goal":k==="goal").map(([k,l])=>`<option value="${k}" ${it.tier===k?"selected":""}>${l}</option>`).join("")}</select>
    <label>Limit per quarter (blank = no limit)</label><input name="lim" type="number" min="1" value="${it.per_quarter_limit??""}">
    <label>Note shown on the card</label><input name="note" maxlength="140" value="${esc(it.note||"")}">
    <label><input type="checkbox" name="appr" style="width:auto;min-height:0" ${it.needs_approval?"checked":""}> Needs teacher pre-approval (bankers can't sell it)</label>
    <label><input type="checkbox" name="act" style="width:auto;min-height:0" ${it.active?"checked":""}> Show in store</label>
    <div class="row" style="margin-top:14px"><button class="pri">Save</button><button type="button" id="n">Cancel</button></div></form>`,(m,close)=>{$("#n",m).onclick=close;
    $("#ie",m).onsubmit=async e=>{e.preventDefault();const f=e.target;const row={name:f.name.value.trim(),emoji:f.emoji.value.trim()||"🎁",price:parseInt(f.price.value,10),tier:f.tier.value,per_quarter_limit:f.lim.value?parseInt(f.lim.value,10):null,note:f.note.value.trim()||null,needs_approval:f.appr.checked,active:f.act.checked};
-     const r=id?await sb.from("store_items").update(row).eq("id",id):await sb.from("store_items").insert({...row,sort:200});if(r.error)return toast(errMsg(r.error));close();toast("Saved");scheduleReload()}})}
+     const r=id?await sb.from("store_items").update(row).eq("id",id):await sb.from("store_items").insert({...row,sort:200,homeroom_id:menuHr||null});if(r.error)return toast(errMsg(r.error));close();toast("Saved");scheduleReload()}})}
 
 /* ================= STUDENTS ================= */
 function vStudents(){
@@ -263,6 +282,10 @@ function vSettings(){const mine=myHr();
      <form id="bc" class="row"><input name="c" type="password" inputmode="numeric" pattern="[0-9]{4,8}" placeholder="New 4–8 digit code" style="max-width:240px" required><button class="pur">Set code</button></form>
      <p class="mut">Changing the code signs out every banker in your homeroom.</p><h3>Who are bankers?</h3><div class="grid">${activeIn(mine.id).map(s=>`<button class="tile ${s.is_banker?"sel":""}" data-bk="${s.id}"><span class="n">${esc(nm(s))}</span><span>${s.is_banker?"🏦 Banker":"Tap to make banker"}</span></button>`).join("")}</div>`
      :`<p class="mut">Claim your homeroom on the left first.</p>`}
+     ${mine?`<h2 style="margin-top:22px">🛍️ Store mode</h2>${mine.is_shared_store?`<p>You run the <b>${SHARED_LABEL}</b> for every class that picks it.</p>`:`
+       <div class="chips" style="flex-direction:column"><button data-sm="plett" style="${mine.store_mode==="plett"?"background:var(--R);color:#fff":""}">${mine.store_mode==="plett"?"✓ ":""}${SHARED_LABEL} handles my class</button><button data-sm="own" style="${mine.store_mode==="own"?"background:var(--R);color:#fff":""}">${mine.store_mode==="own"?"✓ ":""}I run my own store</button></div>`}
+       ${mine.is_shared_store||mine.store_mode==="own"?`<form id="sd" class="row" style="margin-top:10px"><input name="d" placeholder="Store day, e.g. Friday" value="${esc(mine.store_day||"")}" style="max-width:240px"><button>Save day</button></form>`:""}
+       <p class="mut">Your class keeps full bank access either way. Switch any time.</p>`:""}
      <p style="margin-top:14px">Bankers open this same link on the class iPad and tap <b>“I'm a Student Banker.”</b> They can only add/take money and sell store items for your homeroom, and they lock after 5 minutes idle.</p><button id="openB" class="sm">Open banker mode on this device</button></div></div>`;
   $("#pn").onsubmit=async e=>{e.preventDefault();const r=await sb.from("profiles").update({display_name:e.target.n.value.trim()}).eq("id",S.user.id);if(r.error)return toast(errMsg(r.error));S.profile.display_name=e.target.n.value.trim();toast("Saved");render()};
   $$("[data-claim]").forEach(b=>b.onclick=async()=>{const h=S.homerooms.find(x=>x.id===b.dataset.claim);const mineNow=h.owner_teacher_id===S.user.id;
@@ -271,6 +294,8 @@ function vSettings(){const mine=myHr();
   if($("#bc"))$("#bc").onsubmit=async e=>{e.preventDefault();const {error}=await sb.rpc("set_banker_code",{p_homeroom_id:mine.id,p_code:e.target.c.value});if(error)return toast(errMsg(error));toast("Banker code saved");await loadAll();render()};
   $$("[data-bk]").forEach(b=>b.onclick=async()=>{const s=stu(b.dataset.bk);const r=await sb.from("students").update({is_banker:!s.is_banker}).eq("id",s.id);if(r.error)return toast(errMsg(r.error));s.is_banker=!s.is_banker;vSettings()});
   $("#openB").onclick=()=>{location.hash="#banker";route()};
+  $$("[data-sm]").forEach(b=>b.onclick=async()=>{const {error}=await sb.rpc("set_store_mode",{p_homeroom_id:mine.id,p_mode:b.dataset.sm,p_day:mine.store_day||(b.dataset.sm==="own"?"Friday":null)});if(error)return toast(errMsg(error));toast(b.dataset.sm==="own"?"You now run your own store. Add items on the REMI Store tab.":`${SHARED_LABEL} now handles your class`);await loadAll();render()});
+  if($("#sd"))$("#sd").onsubmit=async e=>{e.preventDefault();const {error}=await sb.rpc("set_store_mode",{p_homeroom_id:mine.id,p_mode:mine.store_mode,p_day:e.target.d.value});if(error)return toast(errMsg(error));toast("Saved");await loadAll();render()};
 }
 
 /* ================= TEAM (admin) ================= */
@@ -279,7 +304,7 @@ async function vTeam(){if(!S.isAdmin)return;$("#main").innerHTML=`<p>Loading…<
   $("#main").innerHTML=`<div class="split"><div class="card"><h2>Teachers</h2><table>${ts.map(t=>`<tr><td><b>${esc(t.display_name)}</b><br><small class="mut">${esc(t.email)}</small></td><td>${t.is_admin?'<span class="badge pur">Admin</span>':""} ${t.approved?'<span class="badge" style="background:#DCFCE7">Approved</span>':'<span class="badge amb">Waiting</span>'}</td>
     <td style="text-align:right">${t.id===S.user.id?"(you)":`${t.approved?`<button class="sm red" data-ap="${t.id}" data-v="0">Remove access</button>`:`<button class="sm grn" data-ap="${t.id}" data-v="1">Approve</button>`} <button class="sm" data-ad="${t.id}" data-v="${t.is_admin?0:1}">${t.is_admin?"Remove admin":"Make admin"}</button>`}</td></tr>`).join("")}</table></div>
    <div class="card"><h2>Team invite code</h2><p class="mut">Teachers who enter this when they sign up are approved right away.</p><form id="ic" class="row"><input name="c" value="${esc(code||"")}" style="max-width:260px"><button class="pri">Save code</button></form>
-    <h2 style="margin-top:22px">Homeroom owners</h2><p class="mut">The owner sets that homeroom's banker code.</p><table>${S.homerooms.map(h=>`<tr><td style="color:${h.color}"><b>${esc(h.teacher_name)}</b></td><td><select data-own="${h.id}"><option value="">— nobody —</option>${ts.filter(t=>t.approved).map(t=>`<option value="${t.id}" ${h.owner_teacher_id===t.id?"selected":""}>${esc(t.display_name)}</option>`).join("")}</select></td></tr>`).join("")}</table></div></div>`;
+    <h2 style="margin-top:22px">Homeroom owners</h2><p class="mut">The owner sets that homeroom's banker code.</p><table>${S.homerooms.map(h=>`<tr><td style="color:${h.color}"><b>${esc(h.teacher_name)}</b></td><td><small>${esc(modeText(h))}</small></td><td><select data-own="${h.id}"><option value="">— nobody —</option>${ts.filter(t=>t.approved).map(t=>`<option value="${t.id}" ${h.owner_teacher_id===t.id?"selected":""}>${esc(t.display_name)}</option>`).join("")}</select></td></tr>`).join("")}</table></div></div>`;
   $$("[data-ap]").forEach(b=>b.onclick=async()=>{const {error}=await sb.rpc("admin_set_approved",{_user_id:b.dataset.ap,_approved:b.dataset.v==="1"});if(error)return toast(errMsg(error));vTeam()});
   $$("[data-ad]").forEach(b=>b.onclick=async()=>{const {error}=await sb.rpc("admin_set_admin",{_user_id:b.dataset.ad,_make:b.dataset.v==="1"});if(error)return toast(errMsg(error));vTeam()});
   $("#ic").onsubmit=async e=>{e.preventDefault();const {error}=await sb.rpc("admin_set_invite_code",{p_code:e.target.c.value});toast(error?errMsg(error):"Invite code saved")};
@@ -317,9 +342,13 @@ function bankerRender(){const st=B.state;if(!st)return;const sel=st.students.fin
   $$("[data-bt]").forEach(b=>b.onclick=()=>{B.tab=b.dataset.bt;bankerRender()});$("#bx").onclick=()=>bankerExit("Signed out. Thanks, banker!");bankerTick();
   const m=$("#bm");
   if(B.tab==="recent"){m.innerHTML=`<div class="card">${st.recent.map(t=>`<div class="tx ${t.undone?"undone":""}"><div class="sp"><b>${esc(t.first_name)} ${esc(t.last_initial)}.</b> <span class="mut">· ${esc(t.item_name||reasonLabel(t.reason))}</span><br><small class="mut">${esc(t.banker_name?"Banker "+t.banker_name:t.teacher_name||"")} · ${fmtT(t.created_at)}</small></div><span class="a ${t.amount<0?"neg":"pos"}">${t.amount>0?"+":""}${money(t.amount)}</span></div>`).join("")||'<p class="mut">Nothing yet.</p>'}<p class="mut">Made a mistake? Tell your teacher — only teachers can undo.</p></div>`;return}
-  if(B.tab==="store"){m.innerHTML=`<p class="mut">Pick a student on the Bank tab first, then tap an item to sell it.${sel?` Selling to <b>${esc(sel.first_name)} ${esc(sel.last_initial)}.</b> (${money(sel.balance)})`:""}</p>${TIERS.filter(t=>t[0]!=="goal").map(([k,l,sub])=>{const its=st.items.filter(i=>i.tier===k);if(!its.length)return "";
+  if(B.tab==="store"){const hm=st.homeroom;if(!hm.runs_store){m.innerHTML=`<div class="card"><h2>🛍️ Your class shops at the Room D211 Friday Store</h2><p>The D211 bankers ring up purchases there. You can still add and take REMI dollars on the Bank tab.</p></div>`;return}
+    const ss=(st.store_students||[]).find(x=>x.id===B.ssel);
+    m.innerHTML=`<h2>🛍️ ${hm.is_shared_store?"Room D211 Friday Store":esc(hm.teacher_name)+"'s store"}${hm.store_day?` · ${esc(hm.store_day)}`:""}</h2><label>Customer</label><select id="cust"><option value="">— pick a student —</option>${(st.store_students||[]).map(x=>`<option value="${x.id}" ${B.ssel===x.id?"selected":""}>${esc(x.first_name)} ${esc(x.last_initial)}. (${esc(x.teacher_name)}) · ${money(x.balance)}</option>`).join("")}</select>
+     ${ss?`<p style="font-size:1.2rem">Selling to <b>${esc(ss.first_name)} ${esc(ss.last_initial)}.</b> · ${money(ss.balance)}</p>`:'<p class="mut">Pick a customer, then tap an item.</p>'}${TIERS.filter(t=>t[0]!=="goal").map(([k,l,sub])=>{const its=st.items.filter(i=>i.tier===k);if(!its.length)return "";
       return `<div class="tier"><h3>${l}</h3><span class="mut">${sub}</span></div><div class="items">${its.map(i=>itemCard({...i,active:true},false)).join("")}</div>`}).join("")}`;
-    $$("[data-it]",m).forEach(b=>b.onclick=()=>{const it=st.items.find(i=>i.id===b.dataset.it);if(!sel)return toast("Pick a student on the Bank tab first.");if(it.needs_approval)return toast("That one needs your teacher.");
+    $("#cust",m).onchange=e=>{B.ssel=e.target.value;bankerRender()};const sel=ss;
+    $$("[data-it]",m).forEach(b=>b.onclick=()=>{const it=st.items.find(i=>i.id===b.dataset.it);if(!sel)return toast("Pick a customer first.");if(it.needs_approval)return toast("That one needs your teacher.");
       modal(`<h2>Sell to ${esc(sel.first_name)} ${esc(sel.last_initial)}.?</h2><p style="font-size:1.2rem">${esc(it.emoji)} ${esc(it.name)} · <b>${money(it.price)}</b></p><p style="font-size:1.3rem">${money(sel.balance)} → ${money(sel.balance-it.price)}</p><div class="row"><button class="grn" id="y" ${sel.balance<it.price?"disabled":""}>Sell</button><button id="n">Cancel</button></div>`,(mm,close)=>{$("#n",mm).onclick=close;
         $("#y",mm).onclick=async()=>{close();const {error}=await sbAnon.rpc("banker_buy",{p_token:B.token,p_student_id:sel.id,p_items:[{item_id:it.id,quantity:1}]});if(error)return toast(errMsg(error));B.lastPing=Date.now();toast(`Sold ${it.name} to ${sel.first_name}`);bankerRefresh()}})});return}
   m.innerHTML=`<div class="split"><div class="grid">${st.students.map(s=>`<button class="tile ${B.sel===s.id?"sel":""}" data-bs="${s.id}"><span class="n">${esc(s.first_name)} ${esc(s.last_initial)}.</span><span class="b">${money(s.balance)}</span></button>`).join("")}</div>
