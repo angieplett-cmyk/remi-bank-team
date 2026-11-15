@@ -14,7 +14,7 @@ header{position:sticky;top:0;z-index:20;background:var(--card);border-bottom:2px
 .logo{display:flex;gap:4px;align-items:center;font-weight:900;font-size:1.25rem}
 .logo i{font-style:normal;display:inline-grid;place-items:center;width:34px;height:34px;border-radius:10px;color:#fff;font-weight:900}
 nav{display:flex;gap:6px;flex-wrap:wrap;flex:1}
-nav button{min-height:46px;background:transparent}
+nav button{min-height:46px;background:transparent;white-space:nowrap}
 nav button.on{background:var(--ink);color:#fff}
 .who{display:flex;align-items:center;gap:8px;font-weight:700;color:var(--mut)}
 .dot{width:12px;height:12px;border-radius:50%;background:#bbb;display:inline-block}.dot.live{background:#22C55E;box-shadow:0 0 0 4px #22c55e33}

@@ -25,7 +25,7 @@ const S={user:null,profile:null,isAdmin:false,homerooms:[],students:[],bal:{},it
 const stu=id=>S.students.find(s=>s.id===id);
 const hrName=id=>(S.homerooms.find(h=>h.id===id)||{}).teacher_name||"—";
 const hrColor=id=>(S.homerooms.find(h=>h.id===id)||{}).color||"#999";
-const nm=s=>s?`${s.first_name} ${s.last_initial}.`:"?";
+const nm=s=>s?(s.last_initial==="?"?`${s.first_name} (?)`:`${s.first_name} ${s.last_initial}.`):"?";
 const myHr=()=>S.homerooms.find(h=>h.owner_teacher_id===S.user?.id);
 const SHARED_LABEL="Room D211 Friday Store";
 const sharedHr=()=>S.homerooms.find(h=>h.is_shared_store);
@@ -349,7 +349,7 @@ async function bankerRefresh(){if(!B.token)return;const {data,error}=await sbAno
   const first=!B.state;B.state=data;if(first||!$(".modal-bg"))bankerRender()}
 function bankerRender(){const st=B.state;if(!st)return;const sel=st.students.find(s=>s.id===B.sel);
   $("#app").innerHTML=`<header style="border-color:${st.homeroom.color}"><div class="logo">${REMI.map(r=>`<i style="background:${r.c}">${r.k}</i>`).join("")}</div><b>Banker: ${esc(B.me.first_name)} ${esc(B.me.last_initial)}. · ${esc(st.homeroom.teacher_name)}'s homeroom</b>
-   <nav style="flex:0"><button data-bt="bank" class="${B.tab==="bank"?"on":""}">🏦 Bank</button><button data-bt="store" class="${B.tab==="store"?"on":""}">🛍️ REMI Store</button><button data-bt="recent" class="${B.tab==="recent"?"on":""}">📜 Recent</button></nav><span class="sp"></span><span class="lock" id="lockT">🔒</span><button class="sm red" id="bx">Done</button></header><main id="bm"></main>`;
+   <nav style="flex:0 0 auto"><button data-bt="bank" class="${B.tab==="bank"?"on":""}">🏦 Bank</button><button data-bt="store" class="${B.tab==="store"?"on":""}">🛍️ REMI Store</button><button data-bt="recent" class="${B.tab==="recent"?"on":""}">📜 Recent</button></nav><span class="sp"></span><span class="lock" id="lockT">🔒</span><button class="sm red" id="bx">Done</button></header><main id="bm"></main>`;
   $$("[data-bt]").forEach(b=>b.onclick=()=>{B.tab=b.dataset.bt;bankerRender()});$("#bx").onclick=()=>bankerExit("Signed out. Thanks, banker!");bankerTick();
   const m=$("#bm");
   if(B.tab==="recent"){m.innerHTML=`<div class="card">${st.recent.map(t=>`<div class="tx ${t.undone?"undone":""}"><div class="sp"><b>${esc(t.first_name)} ${esc(t.last_initial)}.</b> <span class="mut">· ${esc(t.item_name||reasonLabel(t.reason))}</span><br><small class="mut">${esc(t.banker_name?"Banker "+t.banker_name:t.teacher_name||"")} · ${fmtT(t.created_at)}</small></div><span class="a ${t.amount<0?"neg":"pos"}">${t.amount>0?"+":""}${money(t.amount)}</span></div>`).join("")||'<p class="mut">Nothing yet.</p>'}<p class="mut">Made a mistake? Tell your teacher — only teachers can undo.</p></div>`;return}
